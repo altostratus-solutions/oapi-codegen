@@ -20,6 +20,8 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -130,6 +132,15 @@ func Generate(spec *openapi3.T, opts Configuration) (string, error) {
 			if _, err := utpl.Parse(opts.OutputOptions.UserTemplates[tpl.Name()]); err != nil {
 				return "", fmt.Errorf("error parsing user-provided template %q: %w", tpl.Name(), err)
 			}
+		}
+	}
+
+	// Override templates
+
+	if opts.OutputOptions.UserDirTemplates != "" {
+		err = LoadTemplatesExternal(opts.OutputOptions.UserDirTemplates, t)
+		if err != nil {
+			return "", fmt.Errorf("error parsing oapi-codegen templates: %w", err)
 		}
 	}
 
@@ -784,6 +795,34 @@ func LoadTemplates(src embed.FS, t *template.Template) error {
 			return fmt.Errorf("error reading file '%s': %w", path, err)
 		}
 
+		templateName := strings.TrimPrefix(path, "templates/")
+		tmpl := t.New(templateName)
+		_, err = tmpl.Parse(string(buf))
+		if err != nil {
+			return fmt.Errorf("parsing template '%s': %w", path, err)
+		}
+		return nil
+	})
+}
+
+// LoadTemplatesExternal loads external template files into a text/template.
+func LoadTemplatesExternal(route string, t *template.Template) error {
+	src := os.DirFS(route)
+
+	return fs.WalkDir(src, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("error walking directory %s: %w", path, err)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		fileRoute := filepath.Join(route, path)
+
+		buf, err := os.ReadFile(fileRoute)
+
+		if err != nil {
+			return fmt.Errorf("error reading file '%s': %w", fileRoute, err)
+		}
 		templateName := strings.TrimPrefix(path, "templates/")
 		tmpl := t.New(templateName)
 		_, err = tmpl.Parse(string(buf))
